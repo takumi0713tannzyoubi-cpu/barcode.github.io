@@ -12879,6 +12879,44 @@ var qrcode = function() {
     font-family:'Zen Kaku Gothic New', sans-serif;
   }
 
+  /* ---------- PAYMENT METHOD / CARD ---------- */
+  .pm-total{ font-family:'Orbitron',sans-serif; font-weight:700; font-size:26px; margin:10px 0 14px; color:var(--ink); }
+  .pm-list{ display:flex; flex-direction:column; gap:10px; }
+  .pm-btn{
+    display:flex; align-items:center; gap:12px; text-align:left;
+    border:none; border-radius:12px; padding:14px 16px; cursor:pointer;
+    font-family:'Zen Kaku Gothic New',sans-serif; font-weight:700; font-size:15px; color:#fff;
+    transition: transform .08s ease, filter .15s ease;
+  }
+  .pm-btn:active{ transform: scale(0.99); }
+  .pm-btn:hover{ filter:brightness(1.08); }
+  .pm-btn small{ display:block; font-weight:500; font-size:11px; opacity:0.85; margin-top:2px; }
+  .pm-ico{ font-size:26px; }
+  .pm-kira{ background: linear-gradient(135deg,#5c1a72,#b23a8f); }
+  .pm-card{ background: linear-gradient(135deg,#1f3a5f,#3a6ea5); }
+  .pm-line{ text-align:center; font-size:12px; color:var(--ink-soft); margin-top:8px; }
+
+  .card-pay-card{
+    background: linear-gradient(160deg,#10243f 0%,#1f3a5f 55%,#3a6ea5 120%);
+    border-radius:20px; padding:26px 22px 20px; max-width:320px; width:100%;
+    text-align:center; color:#fff; box-shadow:0 20px 60px rgba(0,0,0,0.5); animation: dropin .25s ease;
+  }
+  .card-pay-title{ font-family:'Archivo Black','Zen Kaku Gothic New',sans-serif; font-size:17px; }
+  .card-pay-amount{ font-family:'Orbitron',sans-serif; font-weight:700; font-size:30px; margin:10px 0 16px; text-shadow:0 0 14px rgba(150,200,255,0.5); }
+  .nfc-ring{
+    width:110px; height:110px; margin:0 auto 14px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; font-size:38px;
+    border:2px solid rgba(180,215,255,0.7);
+    animation: nfc-pulse 1.8s ease-out infinite;
+  }
+  .nfc-ring.done{ animation:none; border-color:#9fe8b0; background:rgba(120,230,150,0.15); }
+  @keyframes nfc-pulse{
+    0%{ box-shadow:0 0 0 0 rgba(150,200,255,0.55); }
+    100%{ box-shadow:0 0 0 34px rgba(150,200,255,0); }
+  }
+  .card-pay-status{ font-size:13px; line-height:1.6; min-height:42px; }
+  .card-pay-note{ font-size:10.5px; color:rgba(255,255,255,0.65); line-height:1.6; margin-top:12px; }
+
   /* ---------- QR CREATE TAB ---------- */
   .create-grid{
     display:grid;
@@ -13069,6 +13107,31 @@ var qrcode = function() {
   </div>
 </div>
 
+<!-- payment method chooser -->
+<div class="modal-overlay" id="payMethodOverlay">
+  <div class="modal-receipt" style="text-align:center;">
+    <h3>お支払い方法を選択</h3>
+    <div class="pm-total" id="payMethodTotal">¥0</div>
+    <div class="pm-list">
+      <button class="pm-btn pm-kira" id="payKiraBtn"><span class="pm-ico">✨</span><span>キラキラPay<small>QRコードで支払う</small></span></button>
+      <button class="pm-btn pm-card" id="payCardBtn"><span class="pm-ico">💳</span><span>クレジットカード<small>カードをタッチして支払う</small></span></button>
+    </div>
+    <button class="btn btn-ghost" id="payMethodCancelBtn" style="margin-top:14px;width:100%;background:rgba(0,0,0,0.08);color:var(--ink);">キャンセル</button>
+  </div>
+</div>
+
+<!-- credit card (IC touch) -->
+<div class="modal-overlay" id="cardPayOverlay">
+  <div class="card-pay-card">
+    <div class="card-pay-title">💳 クレジットカード</div>
+    <div class="card-pay-amount" id="cardPayAmount">¥0</div>
+    <div class="nfc-ring" id="nfcRing" role="button" tabindex="0" style="cursor:pointer;"><span>💳</span></div>
+    <div class="card-pay-status" id="cardPayStatus">画面にカードをタッチしてください</div>
+    <button class="btn btn-ghost" id="cardPayCancelBtn" style="width:100%;margin-top:8px;">キャンセル</button>
+    <div class="card-pay-note">※ デモです。実際の決済は行いません。</div>
+  </div>
+</div>
+
 <!-- キラキラPay payment QR, shown on checkout -->
 <div class="modal-overlay" id="kiraPayOverlay">
   <div class="kirapay-card">
@@ -13087,13 +13150,14 @@ var qrcode = function() {
 <!-- checkout modal -->
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal-receipt">
-    <h3>スキャンレジ</h3>
+    <h3 id="modalHeading">スキャンレジ</h3>
     <div class="ts" id="modalTs"></div>
     <div id="modalLines"></div>
     <div class="modal-total">
       <span>合計</span>
       <span id="modalTotal">¥0</span>
     </div>
+    <div class="pm-line" id="modalPayMethod"></div>
     <div class="modal-thanks">ありがとうございました</div>
     <button class="btn btn-accent btn-block" id="newSaleBtn">次のお会計へ</button>
   </div>
@@ -13342,11 +13406,37 @@ var qrcode = function() {
   const modalOverlay = document.getElementById('modalOverlay');
   const kiraPayOverlay = document.getElementById('kiraPayOverlay');
 
+  const payMethodOverlay = document.getElementById('payMethodOverlay');
+  const cardPayOverlay = document.getElementById('cardPayOverlay');
+  let paidMethodLabel = '';
+
+  function showThanks(methodLabel, heading){
+    document.getElementById('modalHeading').textContent = heading || 'スキャンレジ';
+    const now = new Date();
+    document.getElementById('modalTs').textContent = now.toLocaleString('ja-JP');
+    document.getElementById('modalLines').innerHTML = items.map(i=>
+      `<div class="line"><span>${escapeHtml(i.name)} ×${i.qty}</span><span>${money(i.price*i.qty)}</span></div>`
+    ).join('');
+    document.getElementById('modalTotal').textContent = money(total());
+    document.getElementById('modalPayMethod').textContent = methodLabel ? ('お支払い方法：' + methodLabel) : '';
+    modalOverlay.classList.add('show');
+  }
+
+  // 1) お会計 → choose payment method
   document.getElementById('checkoutBtn').addEventListener('click', ()=>{
     if(items.length===0) return;
+    document.getElementById('payMethodTotal').textContent = money(total());
+    payMethodOverlay.classList.add('show');
+  });
+  document.getElementById('payMethodCancelBtn').addEventListener('click', ()=>{
+    payMethodOverlay.classList.remove('show');
+  });
+
+  // 2a) キラキラPay (QR)
+  document.getElementById('payKiraBtn').addEventListener('click', ()=>{
+    payMethodOverlay.classList.remove('show');
     const t = total();
     const payload = 'KIRAPAY:' + JSON.stringify({ t: t });
-
     document.getElementById('kiraPayAmount').textContent = money(t);
     const qrHolder = document.getElementById('kiraPayQr');
     qrHolder.innerHTML = '';
@@ -13365,14 +13455,61 @@ var qrcode = function() {
 
   document.getElementById('kiraPayCloseBtn').addEventListener('click', ()=>{
     kiraPayOverlay.classList.remove('show');
-    // show the usual thanks receipt and clear the cart once the QR has been shown
-    const now = new Date();
-    document.getElementById('modalTs').textContent = now.toLocaleString('ja-JP');
-    document.getElementById('modalLines').innerHTML = items.map(i=>
-      `<div class="line"><span>${escapeHtml(i.name)} ×${i.qty}</span><span>${money(i.price*i.qty)}</span></div>`
-    ).join('');
-    document.getElementById('modalTotal').textContent = money(total());
-    modalOverlay.classList.add('show');
+    showThanks('キラキラPay');
+  });
+
+  // 2b) クレジットカード (IC touch via Web NFC)
+  let nfcAbort = null;
+  const cardStatus = document.getElementById('cardPayStatus');
+  const nfcRing = document.getElementById('nfcRing');
+
+  function stopNfc(){
+    if(nfcAbort){ try{ nfcAbort.abort(); }catch(e){} nfcAbort = null; }
+  }
+
+  let cardDone = false;
+  function cardPaid(idText){
+    if(cardDone) return;
+    cardDone = true;
+    stopNfc();
+    nfcRing.classList.add('done');
+    nfcRing.firstElementChild.textContent = '✅';
+    cardStatus.textContent = 'カードを認識しました！';
+    setTimeout(()=>{
+      cardPayOverlay.classList.remove('show');
+      showThanks('クレジットカード' + (idText ? '（' + idText + '）' : ''), '✅ 購入完了');
+    }, 900);
+  }
+  // touch the screen (the ring) → purchase complete
+  nfcRing.addEventListener('click', ()=> cardPaid(''));
+  nfcRing.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); cardPaid(''); } });
+
+  async function startNfc(){
+    cardDone = false;
+    nfcRing.classList.remove('done');
+    nfcRing.firstElementChild.textContent = '💳';
+    cardStatus.textContent = '画面にカードをタッチしてください';
+    if(!('NDEFReader' in window)) return;
+    try{
+      nfcAbort = new AbortController();
+      const reader = new NDEFReader();
+      await reader.scan({ signal: nfcAbort.signal });
+      reader.onreading = (ev)=>{
+        const sn = ev.serialNumber ? String(ev.serialNumber).replace(/:/g,'').toUpperCase() : '';
+        cardPaid(sn ? '****' + sn.slice(-4) : '');
+      };
+    }catch(err){ /* NFC is optional; screen touch still works */ }
+  }
+
+  document.getElementById('payCardBtn').addEventListener('click', ()=>{
+    payMethodOverlay.classList.remove('show');
+    document.getElementById('cardPayAmount').textContent = money(total());
+    cardPayOverlay.classList.add('show');
+    startNfc();
+  });
+  document.getElementById('cardPayCancelBtn').addEventListener('click', ()=>{
+    stopNfc();
+    cardPayOverlay.classList.remove('show');
   });
 
   document.getElementById('newSaleBtn').addEventListener('click', ()=>{
