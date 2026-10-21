@@ -13467,10 +13467,39 @@ var qrcode = function() {
     if(nfcAbort){ try{ nfcAbort.abort(); }catch(e){} nfcAbort = null; }
   }
 
+  // ---- payment chime (Web Audio, no audio files needed) ----
+  let audioCtx = null;
+  function unlockAudio(){
+    try{
+      if(!audioCtx){ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+      if(audioCtx.state === 'suspended'){ audioCtx.resume(); }
+    }catch(e){}
+  }
+  function playPaySound(){
+    try{
+      unlockAudio();
+      if(!audioCtx) return;
+      const t0 = audioCtx.currentTime + 0.02;
+      [[988, 0, 0.16], [1319, 0.13, 0.16], [1568, 0.26, 0.45]].forEach(([freq, start, dur])=>{
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, t0 + start);
+        gain.gain.exponentialRampToValueAtTime(0.35, t0 + start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + start + dur);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(t0 + start);
+        osc.stop(t0 + start + dur + 0.05);
+      });
+    }catch(e){}
+  }
+
   let cardDone = false;
   function cardPaid(idText){
     if(cardDone) return;
     cardDone = true;
+    playPaySound();
     stopNfc();
     nfcRing.classList.add('done');
     nfcRing.firstElementChild.textContent = '✅';
@@ -13502,6 +13531,7 @@ var qrcode = function() {
   }
 
   document.getElementById('payCardBtn').addEventListener('click', ()=>{
+    unlockAudio();
     payMethodOverlay.classList.remove('show');
     document.getElementById('cardPayAmount').textContent = money(total());
     cardPayOverlay.classList.add('show');
